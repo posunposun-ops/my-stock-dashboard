@@ -1,6 +1,6 @@
 streamlit
 fugle-marketdata
 pandas
-yfinance
 streamlit-autorefresh
+yfinance
 altair
