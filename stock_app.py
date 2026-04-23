@@ -85,4 +85,4 @@ except Exception as e:
     st.error(f"📡 連線異常：{e}")
     st.info("提示：如果出現 string indices 錯誤，通常是 API Key 沒填對。")
 
-st.caption(f"數據刷新：每 2 秒 | 狀態：{'🟢 正常' if 'results' in locals() else '🔴 異常'} | 更新時間：{pd.Timestamp.now(tz='Asia/Taipei').strftime('%H:%M:%S')}")
+st.caption(f"數據刷新：每 10 秒 | 狀態：{'🟢 正常' if 'results' in locals() else '🔴 異常'} | 更新時間：{pd.Timestamp.now(tz='Asia/Taipei').strftime('%H:%M:%S')}")
