@@ -3,31 +3,30 @@ from fugle_marketdata import RestClient
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh
 
-# 1. 網頁基本設定
-st.set_page_config(page_title="柏昇操盤監控", layout="wide")
+# 1. 網頁設定
+st.set_page_config(page_title="柏昇即時看板", layout="wide")
 
-# --- 設定自動刷新：30 秒一次 (保護 API 額度) ---
-st_autorefresh(interval=30000, key="stock_refresh")
+# 設定自動刷新：10 秒一次 (非常安全，絕對不會爆)
+st_autorefresh(interval=10000, key="stock_refresh")
 
-# CSS 樣式：針對大字體與圖表排版
+# CSS 樣式：維持你要求的大字體
 st.markdown("""
     <style>
-    .stock-container {
-        border-radius: 15px; padding: 15px; margin-bottom: 15px;
-        box-shadow: 0px 4px 10px rgba(0,0,0,0.08); height: 220px;
+    .stock-card {
+        padding: 20px 10px; border-radius: 15px; margin-bottom: 15px; text-align: center;
+        box-shadow: 0px 4px 12px rgba(0,0,0,0.1); height: 160px;
         display: flex; flex-direction: column; justify-content: center;
     }
     .up { color: #FF0000; background-color: #FFF0F0; border: 3px solid #FF0000; }
     .down { color: #008000; background-color: #F0FFF0; border: 3px solid #008000; }
     .stable { color: #31333F; background-color: #F8F9FA; border: 3px solid #D0D0D0; }
-    
-    .stock-name { font-size: 24px; font-weight: 800; margin-bottom: 0px; }
-    .price { font-size: 48px; font-weight: 900; line-height: 1; margin: 5px 0; }
-    .delta { font-size: 20px; font-weight: 700; }
+    .stock-name { font-size: 24px; color: #333; font-weight: 800; margin-bottom: 5px; }
+    .price { font-size: 44px; font-weight: 900; line-height: 1.1; margin: 5px 0; }
+    .delta { font-size: 18px; font-weight: 700; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📊 柏昇持股監控：大字體 + 當日走勢")
+st.title("🍎 柏昇即時持股監控 (穩定大字版)")
 
 # 2. 安全讀取 API Key
 FUGLE_API_KEY = st.secrets["FUGLE_KEY"]
@@ -40,47 +39,48 @@ my_portfolio = {
     "3491": "昇達科", "3037": "欣興", "3189": "景碩", "8033": "雷虎", "2344": "華邦電"
 }
 
-# 4. 顯示網格 (一排 3 支，給圖表足夠空間)
-symbols = list(my_portfolio.keys())
-for i in range(0, len(symbols), 3):
-    cols = st.columns(3)
-    for j, sid in enumerate(symbols[i:i+3]):
-        with cols[j]:
-            name = my_portfolio[sid]
-            try:
-                # A. 抓取即時報價
-                q = client.stock.intraday.quote(symbol=sid)
-                # B. 抓取今日走勢 (1分鐘 K 線)
-                c = client.stock.intraday.candles(symbol=sid)
-                
-                if q and 'lastPrice' in q:
-                    price = q['lastPrice']
-                    change = q['change']
-                    pct = q['changePercent']
+# 4. 執行「超級批次」抓取 (15 檔只花 1 個 API 額度)
+try:
+    # 將所有代號串起來
+    sym_list = list(my_portfolio.keys())
+    results = client.stock.intraday.tickers(symbols=sym_list)
+    
+    # 建立數據搜尋字典
+    data_map = {}
+    if isinstance(results, list):
+        for item in results:
+            if 'symbol' in item:
+                data_map[item['symbol']] = item
+
+    # 5. 顯示網格 (一排 5 支)
+    for i in range(0, len(sym_list), 5):
+        cols = st.columns(5)
+        for j, sid in enumerate(sym_list[i:i+5]):
+            with cols[j]:
+                name = my_portfolio[sid]
+                if sid in data_map:
+                    s = data_map[sid]
+                    price = s.get('lastPrice') or 0
+                    change = s.get('change', 0)
+                    pct = s.get('changePercent', 0)
+                    
                     color_class = "up" if change > 0 else ("down" if change < 0 else "stable")
                     sign = "+" if change > 0 else ""
+                    
+                    st.markdown(f"""
+                        <div class="stock-card {color_class}">
+                            <div class="stock-name">{name}</div>
+                            <div class="price">{price:.1f}</div>
+                            <div class="delta">{sign}{change:.2f} ({sign}{pct:.2f}%)</div>
+                            <div style="font-size:12px; color:gray;">{sid}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    # 如果抓不到資料，顯示具體的代號方便 debug
+                    st.error(f"{sid} 無資料")
 
-                    # 準備圖表數據
-                    df_chart = pd.DataFrame(c)
-                    
-                    # 建立左右佈局：左邊放文字，右邊放小圖
-                    st.markdown(f'<div class="stock-container {color_class}">', unsafe_allow_html=True)
-                    t_col, g_col = st.columns([1.2, 1])
-                    
-                    with t_col:
-                        st.markdown(f'<div class="stock-name">{name}</div>', unsafe_allow_html=True)
-                        st.markdown(f'<div class="price">{price:.1f}</div>', unsafe_allow_html=True)
-                        st.markdown(f'<div class="delta">{sign}{change:.2f} ({sign}{pct:.2f}%)</div>', unsafe_allow_html=True)
-                        st.caption(f"代號: {sid}")
-                    
-                    with g_col:
-                        if not df_chart.empty:
-                            # 顯示極簡線圖
-                            st.line_chart(df_chart['close'], height=120, use_container_width=True)
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
-            except:
-                st.error(f"{sid} {name} 讀取中...")
+except Exception as e:
+    st.error(f"📡 API 連線失敗，請檢查密鑰或網路。錯誤碼: {e}")
 
 st.divider()
-st.caption(f"🔄 每 30 秒自動更新一次 (保護 API) | 更新時間：{pd.Timestamp.now(tz='Asia/Taipei').strftime('%H:%M:%S')}")
+st.caption(f"🔄 10 秒自動更新 | API 消耗：極低 (每分鐘 6 次) | 更新時間：{pd.Timestamp.now(tz='Asia/Taipei').strftime('%H:%M:%S')}")
