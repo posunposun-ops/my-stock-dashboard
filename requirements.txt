@@ -1,3 +1,4 @@
 streamlit
 fugle-marketdata
 pandas
+streamlit-autorefresh
