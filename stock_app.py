@@ -1,32 +1,34 @@
 import streamlit as st
 from fugle_marketdata import RestClient
 import pandas as pd
+import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
 
-# 1. 網頁設定
-st.set_page_config(page_title="柏昇即時看板", layout="wide")
+# 1. 網頁基本設定
+st.set_page_config(page_title="柏昇操盤監控", layout="wide")
 
-# 設定自動刷新：10 秒一次 (非常安全，絕對不會爆)
-st_autorefresh(interval=10000, key="stock_refresh")
+# 設定自動刷新：20 秒一次 (安全且穩定)
+st_autorefresh(interval=20000, key="stock_refresh")
 
-# CSS 樣式：維持你要求的大字體
+# CSS 樣式：大字體 + 走勢圖排版
 st.markdown("""
     <style>
-    .stock-card {
-        padding: 20px 10px; border-radius: 15px; margin-bottom: 15px; text-align: center;
-        box-shadow: 0px 4px 12px rgba(0,0,0,0.1); height: 160px;
+    .stock-container {
+        border-radius: 15px; padding: 15px; margin-bottom: 15px;
+        box-shadow: 0px 4px 10px rgba(0,0,0,0.1); height: 200px;
         display: flex; flex-direction: column; justify-content: center;
     }
     .up { color: #FF0000; background-color: #FFF0F0; border: 3px solid #FF0000; }
     .down { color: #008000; background-color: #F0FFF0; border: 3px solid #008000; }
-    .stable { color: #31333F; background-color: #F8F9FA; border: 3px solid #D0D0D0; }
-    .stock-name { font-size: 24px; color: #333; font-weight: 800; margin-bottom: 5px; }
-    .price { font-size: 44px; font-weight: 900; line-height: 1.1; margin: 5px 0; }
+    .stable { color: #31333F; background-color: #F8F9FA; border: 2px solid #D0D0D0; }
+    
+    .stock-name { font-size: 24px; font-weight: 800; margin-bottom: 0px; }
+    .price { font-size: 48px; font-weight: 900; line-height: 1; margin: 5px 0; }
     .delta { font-size: 18px; font-weight: 700; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🍎 柏昇即時持股監控 (穩定大字版)")
+st.title("📊 柏昇即時看板：富果價格 + Yahoo 走勢")
 
 # 2. 安全讀取 API Key
 FUGLE_API_KEY = st.secrets["FUGLE_KEY"]
@@ -39,48 +41,66 @@ my_portfolio = {
     "3491": "昇達科", "3037": "欣興", "3189": "景碩", "8033": "雷虎", "2344": "華邦電"
 }
 
-# 4. 執行「超級批次」抓取 (15 檔只花 1 個 API 額度)
-try:
-    # 將所有代號串起來
-    sym_list = list(my_portfolio.keys())
-    results = client.stock.intraday.tickers(symbols=sym_list)
-    
-    # 建立數據搜尋字典
-    data_map = {}
-    if isinstance(results, list):
-        for item in results:
-            if 'symbol' in item:
-                data_map[item['symbol']] = item
+# 判斷上市或上櫃 (yfinance 專用)
+def get_yf_symbol(sid):
+    # 簡單判斷：常用的上櫃代號 (3491, 6789 等)，若不確定可預設為 .TW
+    otc_list = ["3491", "6789", "3189", "3324"]
+    return f"{sid}.TWO" if sid in otc_list else f"{sid}.TW"
 
-    # 5. 顯示網格 (一排 5 支)
-    for i in range(0, len(sym_list), 5):
-        cols = st.columns(5)
-        for j, sid in enumerate(sym_list[i:i+5]):
-            with cols[j]:
-                name = my_portfolio[sid]
-                if sid in data_map:
-                    s = data_map[sid]
-                    price = s.get('lastPrice') or 0
-                    change = s.get('change', 0)
-                    pct = s.get('changePercent', 0)
-                    
+# 4. 批次抓取 Yahoo 走勢圖數據 (一次抓全部，效率最高)
+yf_symbols = [get_yf_symbol(sid) for sid in my_portfolio.keys()]
+try:
+    # 抓取今天 (1d) 每 2 分鐘 (2m) 的數據
+    yf_data = yf.download(yf_symbols, period="1d", interval="2m", group_by='ticker', progress=False)
+except:
+    yf_data = pd.DataFrame()
+
+# 5. 顯示網格 (一排 3 支)
+symbols = list(my_portfolio.keys())
+for i in range(0, len(symbols), 3):
+    cols = st.columns(3)
+    for j, sid in enumerate(symbols[i:i+3]):
+        with cols[j]:
+            name = my_portfolio[sid]
+            yf_sid = get_yf_symbol(sid)
+            try:
+                # 抓取富果即時報價 (保證價格最快)
+                q = client.stock.intraday.quote(symbol=sid)
+                
+                if q and 'lastPrice' in q:
+                    price = q['lastPrice']
+                    change = q['change']
+                    pct = q['changePercent']
                     color_class = "up" if change > 0 else ("down" if change < 0 else "stable")
                     sign = "+" if change > 0 else ""
-                    
-                    st.markdown(f"""
-                        <div class="stock-card {color_class}">
-                            <div class="stock-name">{name}</div>
-                            <div class="price">{price:.1f}</div>
-                            <div class="delta">{sign}{change:.2f} ({sign}{pct:.2f}%)</div>
-                            <div style="font-size:12px; color:gray;">{sid}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    # 如果抓不到資料，顯示具體的代號方便 debug
-                    st.error(f"{sid} 無資料")
 
-except Exception as e:
-    st.error(f"📡 API 連線失敗，請檢查密鑰或網路。錯誤碼: {e}")
+                    # 準備 Yahoo 走勢數據
+                    try:
+                        chart_data = yf_data[yf_sid]['Close'].dropna()
+                    except:
+                        chart_data = pd.Series()
+
+                    # 佈局：左邊文字，右邊圖
+                    st.markdown(f'<div class="stock-container {color_class}">', unsafe_allow_html=True)
+                    t_col, g_col = st.columns([1, 1.2])
+                    
+                    with t_col:
+                        st.markdown(f'<div class="stock-name">{name}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="price">{price:.1f}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="delta">{sign}{change:.2f} ({sign}{pct:.2f}%)</div>', unsafe_allow_html=True)
+                    
+                    with g_col:
+                        if not chart_data.empty:
+                            # 繪製極簡走勢圖
+                            st.line_chart(chart_data, height=120, use_container_width=True)
+                        else:
+                            st.caption("走勢加載中...")
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    st.error(f"{sid} 無報價資料")
+            except:
+                st.error(f"{sid} 連線中...")
 
 st.divider()
-st.caption(f"🔄 10 秒自動更新 | API 消耗：極低 (每分鐘 6 次) | 更新時間：{pd.Timestamp.now(tz='Asia/Taipei').strftime('%H:%M:%S')}")
+st.caption(f"數據來源：富果 (價格) & Yahoo (走勢) | 更新時間：{pd.Timestamp.now(tz='Asia/Taipei').strftime('%H:%M:%S')}")
