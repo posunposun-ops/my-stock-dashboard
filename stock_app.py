@@ -6,8 +6,8 @@ from streamlit_autorefresh import st_autorefresh
 # 1. 網頁設定
 st.set_page_config(page_title="柏昇 15 檔全彩看板", layout="wide")
 
-# 設定自動刷新 (2秒一次)
-st_autorefresh(interval=2000, key="stock_refresh")
+# 設定自動刷新 (10秒一次)
+st_autorefresh(interval=10000, key="stock_refresh")
 
 # CSS 設定：讓卡片更美、紅綠對比更明顯
 st.markdown("""
