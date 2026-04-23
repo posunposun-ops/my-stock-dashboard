@@ -2,62 +2,60 @@ import streamlit as st
 from fugle_marketdata import RestClient
 import pandas as pd
 
-# --- 1. 網頁設定 ---
-st.set_page_config(page_title="柏昇即時看盤", layout="wide")
-st.title("⚡ 台股即時報價 (零延遲)")
+# 1. 網頁設定：使用寬版模式
+st.set_page_config(page_title="我的持股即時儀表板", layout="wide")
+st.title("📊 我的持股即時監控")
 
-# --- 2. 安全地讀取 API KEY (這行很重要) ---
-# 我們要從 Streamlit Cloud 的 Secrets 抓取你剛才那組 dab7... 的密鑰
+# 2. 安全讀取 API Key
 try:
     FUGLE_API_KEY = st.secrets["FUGLE_KEY"]
     client = RestClient(api_key=FUGLE_API_KEY)
 except Exception:
-    st.error("🔑 密鑰錯誤：請確認 Streamlit Cloud 的 Secrets 設定中是否有 FUGLE_KEY")
+    st.error("🔑 請先在 Secrets 設定 FUGLE_KEY")
     st.stop()
 
-# --- 3. 側邊欄設定 ---
-with st.sidebar:
-    st.header("搜尋股票")
-    stock_id = st.text_input("輸入台股代號 (如: 2330)", "2330")
-    if st.button("🔄 點擊刷新即時報價"):
-        st.rerun()
+# 3. 定義你的持股清單 (你可以隨時在這裡增減，湊滿 10 檔)
+my_holdings = [
+    "2330", "2317", "3711", "2454", "2308", 
+    "0056", "00919", "00878", "00713", "0050"
+]
 
-# --- 4. 抓取即時數據 ---
-try:
-    # 獲取即時行情
-    stock = client.stock.intraday.quote(symbol=stock_id)
-    
-    # 顯示頂部卡片
-    if stock and 'lastPrice' in stock:
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("成交價", f"{stock['lastPrice']:.2f}")
-        c2.metric("漲跌", f"{stock['change']}", f"{stock['changePercent']}%")
-        c3.metric("成交量", f"{stock['total']['tradeVolume']} 張")
-        c4.metric("最高/最低", f"{stock['highPrice']} / {stock['lowPrice']}")
+# 4. 建立重新整理按鈕
+if st.button("🔄 重新整理所有行情"):
+    st.rerun()
 
-        st.divider()
+st.divider()
 
-        # --- 5. 顯示最佳五檔 ---
-        st.subheader(f"📊 {stock_id} 最佳五檔報價")
-        
-        bids = stock.get('bids', [])
-        asks = stock.get('asks', [])
+# 5. 核心佈局：使用迴圈自動產生網格
+# 我們設定一橫排顯示 4 支股票
+cols_per_row = 4
+rows = (len(my_holdings) + cols_per_row - 1) // cols_per_row
 
-        col_ask, col_bid = st.columns(2)
+for r in range(rows):
+    # 建立該排的欄位
+    cols = st.columns(cols_per_row)
+    for c in range(cols_per_row):
+        index = r * cols_per_row + c
+        if index < len(my_holdings):
+            stock_id = my_holdings[index]
+            with cols[c]:
+                try:
+                    # 抓取即時行情
+                    quote = client.stock.intraday.quote(symbol=stock_id)
+                    
+                    if quote and 'lastPrice' in quote:
+                        # 顯示小型數據卡片
+                        # 漲跌判斷顏色
+                        change_val = quote['change']
+                        st.metric(
+                            label=f"{stock_id}",
+                            value=f"{quote['lastPrice']:.2f}",
+                            delta=f"{change_val} ({quote['changePercent']}%)"
+                        )
+                    else:
+                        st.caption(f"{stock_id} 暫無數據")
+                except:
+                    st.error(f"{stock_id} 讀取失敗")
 
-        with col_ask:
-            st.write("🔴 賣出報價 (Asks)")
-            df_asks = pd.DataFrame(asks).sort_values('price', ascending=False)
-            st.table(df_asks.rename(columns={'price': '賣價', 'volume': '張數'}))
-
-        with col_bid:
-            st.write("🟢 買進報價 (Bids)")
-            df_bids = pd.DataFrame(bids).sort_values('price', ascending=False)
-            st.table(df_bids.rename(columns={'price': '買價', 'volume': '張數'}))
-    else:
-        st.warning("目前暫無即時數據，請確認現在是否為開盤時間。")
-
-except Exception as e:
-    st.error(f"讀取失敗。錯誤訊息: {e}")
-
-st.caption("數據來源：富果即時行情 API (零延遲)")
+st.divider()
+st.caption("數據來源：富果即時行情 API | 畫面每排顯示 4 支持股")
